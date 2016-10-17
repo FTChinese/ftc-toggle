@@ -1,84 +1,122 @@
-import Toggle from './toggle';
-/** 
-	* Class representing a togglable menu
-	* @extends Toggle
-	*/
-class ToggleMenu extends Toggle {
-	/**
-	 * Create a toggle menu
-	 * @param {String | HTMLElement} rootEl - The memnu container
-	 * @param {Object} config
-	 * @param {String | HTMLElement} config.target - Toggle target. Passed to `Toggle` constructor.
-	 * @param {Boolean} config.bodyTogglable - Close menu when clicked on any part outside the `rootEl`
-	 * @param {String} config.hashNavClass - Anchor's classname inside `targetEl`. Used mainly for fragement identifier. Say, when a link pointing to a fragement idenfitier is clicked, you want the menu automatically closed rather than staying open. 
-	 */
-	constructor(rootEl, config) {
-    if (!rootEl) {
-      return;
-    } else if (!(rootEl instanceof HTMLElement)) {
-      rootEl = document.querySelector(rootEl);
+class Toggle {
+
+    constructor(toggleEl, config) {
+        if (!Toggle._toggles) {
+            Toggle._toggles = new Map();
+        }
+        if (!toggleEl) {
+            return;
+        } else if (!(toggleEl instanceof HTMLElement)) {
+            toggleEl = document.querySelector(toggleEl);
+        }
+
+        if (toggleEl.hasAttribute('data-o-toggle--js')) {
+            return;
+        }
+
+        if (!config) {
+            config = {};
+            // Try to get config set declaratively on the element
+            Array.prototype.forEach.call(toggleEl.attributes, (attr) => {
+                if (attr.name.indexOf('data-o-toggle') === 0) {
+                    // Remove the prefix part of the data attribute name
+                    const key = attr.name.replace('data-o-toggle-', '');
+                    try {
+                        // If it's a JSON, a boolean or a number, we want it stored like that, and not as a string
+                        // We also replace all ' with " so JSON strings are parsed correctly
+                        config[key] = JSON.parse(attr.value.replace(/\'/g, '"'));
+                    } catch (e) {
+                        config[key] = attr.value;
+                    }
+                }
+            });
+        }
+
+        this.callback = config.callback;
+        if (typeof this.callback === 'string') {
+            this.callback = new Function(this.callback);
+        }
+
+        this.targetEl = config.target;
+        if (!(this.targetEl instanceof HTMLElement)) {
+            this.targetEl = document.querySelector(this.targetEl);
+        }
+
+        this.toggleEl = toggleEl;
+
+        if (typeof Toggle._toggles.get(this.targetEl) === 'undefined') {
+            Toggle._toggles.set(this.targetEl, [this]);
+        } else {
+            Toggle._toggles.get(this.targetEl).push(this);
+        }
+
+        if (this.toggleEl.nodeName === 'A') {
+            this.toggleEl.setAttribute('role', 'button');
+        }
+
+        this.toggleEl.setAttribute('aria-expanded', 'false');
+        this.toggle = this.toggle.bind(this);
+        this.toggleEl.addEventListener('click', this.toggle);
+
+        this.targetEl.setAttribute('aria-hidden', 'true');
+        this.toggleEl.setAttribute('data-o-toggle--js', 'true');
     }
 
-    const toggleEl = rootEl.querySelector('[data-o-component="o-toggle"]');
+    toggle(e) {
+        // Toggle returns true if class is not present and needs to be added
+        const state = this.targetEl.classList.toggle('o-toggle--active');
 
-    var targetEl = null;
+        Toggle._toggles.get(this.targetEl).forEach((toggle) => {
+            toggle.toggleEl.setAttribute('aria-expanded', state);
+        });
 
-    config = config ? config : {};
+        this.targetEl.setAttribute('aria-hidden', !state);
 
-    if (!config.target) {
-    	targetEl = toggleEl.hasAttribute('data-o-toggle-target') ? toggleEl.getAttribute('data-o-toggle-target') : null;
-    } else {
-    	targetEl = config.target;
-    }
-    
-    if (!targetEl) {return;}
-
-    // At this point config.target could be either a String or an HTMLElement. Make sure it's an HTMLElement.
-    if (!(targetEl instanceof HTMLElement)) {
-    	targetEl = rootEl.querySelector(targetEl);
+        e && e.preventDefault();
+        this.callback && this.callback(state ? 'open' : 'close', e);
     }
 
-    super(toggleEl, {target: targetEl});
+    destroy() {
+        this.toggleEl.removeEventListener('click', this.toggle);
+        this.toggleEl.removeAttribute('aria-expanded');
+        this.toggleEl.removeAttribute('role');
+        this.toggleEl.removeAttribute('data-o-toggle--js');
+        this.targetEl.removeAttribute('aria-hidden');
 
-		// 'this' is not allowed before super()
-		this.rootEl = rootEl;
-		this.anchorClassName = config.autoCollapseAnchor;
+        const targetArray = Toggle._toggles.get(this.targetEl);
+        const togglePosition = targetArray.indexOf(this);
+        // Generates a new array removing the current toggle from the list
+        Toggle._toggles.set(this.targetEl,
+                            targetArray.slice(0, togglePosition)
+                                        .join(targetArray.slice(togglePosition + 1)));
 
-		// Bind `this` to current object even in callback.
-    this.clickOnHash = this.clickOnHash.bind(this);
-    this.clickOnBody = this.clickOnBody.bind(this);
-    this.handleEsc = this.handleEsc.bind(this);
-
-    if (config.hashNavClass) {
-    	targetEl.addEventListener('click', this.clickOnHash);
+        this.targetEl = undefined;
+        this.toggleEl = undefined;
+        this.callback = undefined;
     }
 
-    if (config.bodyTogglable) {
-    	document.body.addEventListener('click', this.clickOnBody);
+    static init(el, config) {
+        if (!el) {
+            el = document.body;
+        } else if (!(el instanceof HTMLElement)) {
+            el = document.querySelector(el);
+        }
+        const toggleEls = el.querySelectorAll('[data-o-component="o-toggle"]');
+        const toggles = [];
+        for (let toggleEl of toggleEls) {
+            if (!toggleEl.hasAttribute('data-o-toggle--js')) {
+                toggles.push(new Toggle(toggleEl, config));
+            }
+        }
+        return toggles;
     }
-    
-    document.body.addEventListener('keydown', this.handleEsc);
-	}
+};
 
-	// `toggle()` inherited from `Toggle`.
-  clickOnHash (e) {
-    if (this.state && e.target.classList.contains(this.anchorClassName)) {
-    // do not pass `e` to `toggle()`. You centainly do not want a link prevented.
-      this.toggle();
-    }
-  }
+const constructAll = () => {
+    Toggle.init();
+    document.removeEventListener('o.DOMContentLoaded', constructAll);
+};
 
-	clickOnBody(e) {
-		if (this.state && !this.rootEl.contains(e.target)) {
-      this.toggle();
-    }
-	}
+document.addEventListener('o.DOMContentLoaded', constructAll);
 
-	handleEsc(e) {
-    if (this.state && e.keyCode === 27) {
-        this.toggle();
-    }
-  }
-}
-
-export default ToggleMenu;
+export default Toggle;

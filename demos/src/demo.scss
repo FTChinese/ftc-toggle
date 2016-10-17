@@ -2,6 +2,7 @@
 
 body {
 	@include oColorsFor(page);
+	padding-top: 100px;
 }
 
 ul {
