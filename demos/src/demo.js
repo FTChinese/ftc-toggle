@@ -1,4 +1,4 @@
-import Toggle, {ToggleMenu} from '../../main.js';
+import Toggle from '../../main.js';
 
 Toggle.init();
 
